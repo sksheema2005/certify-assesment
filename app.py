@@ -243,7 +243,7 @@ def token_error(token_row: sqlite3.Row | None) -> str | None:
 @app.route("/")
 def index():
     ensure_db()
-    return send_from_directory(app.static_folder, "admin.html")
+    return send_from_directory(os.path.join(app.root_path, app.static_folder), "admin.html")
 
 
 @app.route("/admin.css")
