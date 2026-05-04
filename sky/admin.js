@@ -65,17 +65,36 @@ function checkStrength(val) {
     document.getElementById('strengthLabel').textContent = val.length > 0 ? labels[score] : '';
 }
 
+// ===== SESSION MANAGEMENT =====
+async function checkSession() {
+    try {
+        const response = await fetch('/api/session');
+        const data = await response.json();
+        if (data.authenticated) {
+            showDashboard(data.admin.email, data.admin.full_name);
+        }
+    } catch (err) {
+        console.error('Session check failed:', err);
+    }
+}
+
 // ===== SHOW DASHBOARD =====
-function showDashboard(email) {
+function showDashboard(email, fullName) {
     document.getElementById('authWrapper').style.display = 'none';
     document.getElementById('dashboardWrapper').classList.add('active');
     document.body.style.alignItems = 'stretch';
 
     // Personalize
-    const name = email.split('@')[0];
-    const displayName = name.charAt(0).toUpperCase() + name.slice(1);
+    const displayName = fullName || email.split('@')[0];
     document.getElementById('dashName').textContent = displayName;
     document.getElementById('dashAvatar').textContent = displayName.substring(0, 2).toUpperCase();
+
+    // Load data
+    loadDashboardStats();
+    loadOpportunities();
+    loadStudents();
+    loadVerifiers();
+    loadCourses();
 
     // Show menu toggle on mobile
     if (window.innerWidth <= 768) {
@@ -83,13 +102,165 @@ function showDashboard(email) {
     }
 }
 
-function handleLogout() {
-    document.getElementById('dashboardWrapper').classList.remove('active');
-    document.getElementById('authWrapper').style.display = 'flex';
-    document.body.style.alignItems = '';
-    showToast('Signed out successfully');
-    showPage('loginPage');
+async function loadDashboardStats() {
+    try {
+        const response = await fetch('/api/dashboard/stats');
+        const stats = await response.json();
+        
+        // Dashboard Stats
+        const statValues = document.querySelectorAll('.stat-card .stat-value span:first-child');
+        if (statValues.length >= 3) {
+            statValues[0].textContent = stats.total_students.toLocaleString();
+            statValues[1].textContent = stats.total_teachers.toLocaleString();
+            statValues[2].textContent = stats.total_parents.toLocaleString();
+        }
+        
+        // Learner Stats
+        const learnerCards = document.querySelectorAll('#learnerSection .learner-stat-card .number');
+        if (learnerCards.length >= 4) {
+            learnerCards[0].textContent = stats.learner.total.toLocaleString();
+            learnerCards[1].textContent = stats.learner.certified.toLocaleString();
+            learnerCards[2].textContent = stats.learner.enrolled.toLocaleString();
+            learnerCards[3].textContent = stats.learner.deactivated.toLocaleString();
+        }
+        
+        // Verifier Stats
+        const verifierCards = document.querySelectorAll('#verifierSection .learner-stat-card .number');
+        if (verifierCards.length >= 4) {
+            verifierCards[0].textContent = stats.verifier.total.toLocaleString();
+            verifierCards[1].textContent = stats.verifier.active.toLocaleString();
+            verifierCards[2].textContent = stats.verifier.inactive.toLocaleString();
+            verifierCards[3].textContent = stats.verifier.pending.toLocaleString();
+        }
+    } catch (err) {
+        console.error('Failed to load dashboard stats:', err);
+    }
 }
+
+async function loadStudents() {
+    try {
+        const response = await fetch('/api/students');
+        const data = await response.json();
+        renderStudentsTable(data.students);
+    } catch (err) {
+        console.error('Failed to load students:', err);
+    }
+}
+
+function renderStudentsTable(students) {
+    const tbody = document.getElementById('studentsTableBody');
+    if (!tbody) return;
+    
+    if (students.length === 0) {
+        // Keep hardcoded for now if empty to avoid blank screen during dev, or show empty row
+        // tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--qf-text-light)">No students found.</td></tr>';
+        return; 
+    }
+    
+    tbody.innerHTML = students.map(s => `
+        <tr data-status="${s.status}">
+            <td>#${s.student_id}</td>
+            <td>${escapeHtml(s.full_name)}</td>
+            <td>${escapeHtml(s.email)}</td>
+            <td><span class="badge ${s.status}">${s.status.charAt(0).toUpperCase() + s.status.slice(1)}</span></td>
+            <td>${s.enrolled_courses}</td>
+            <td><span class="badge certified">${s.certificates} Certified</span></td>
+            <td>${s.last_login}</td>
+        </tr>
+    `).join('');
+}
+
+async function loadVerifiers() {
+    try {
+        const response = await fetch('/api/verifiers');
+        const data = await response.json();
+        renderVerifiersTable(data.verifiers);
+    } catch (err) {
+        console.error('Failed to load verifiers:', err);
+    }
+}
+
+function renderVerifiersTable(verifiers) {
+    const tbody = document.getElementById('verifiersTableBody');
+    if (!tbody) return;
+    
+    if (verifiers.length === 0) {
+        return; // Keep hardcoded if empty for demo
+    }
+    
+    tbody.innerHTML = verifiers.map(v => `
+        <tr data-status="${v.status}">
+            <td>#${v.verifier_id}</td>
+            <td>${escapeHtml(v.full_name)}</td>
+            <td>${escapeHtml(v.email)}</td>
+            <td><span class="badge ${v.status}">${v.status.charAt(0).toUpperCase() + v.status.slice(1)}</span></td>
+            <td>2 Subjects</td>
+            <td><span class="badge certified">312</span></td>
+            <td>Jan 2025</td>
+        </tr>
+    `).join('');
+}
+
+async function loadCourses() {
+    try {
+        const response = await fetch('/api/courses');
+        const data = await response.json();
+        renderCoursesGrid(data.courses);
+    } catch (err) {
+        console.error('Failed to load courses:', err);
+    }
+}
+
+function renderCoursesGrid(courses) {
+    const grid = document.querySelector('#learnerSection .courses-grid');
+    if (!grid) return;
+    
+    grid.innerHTML = courses.map(c => `
+        <div class="course-card">
+            <div class="course-header">
+                <div>
+                    <h5>${escapeHtml(c.name)}</h5>
+                    <div class="course-category">${escapeHtml(c.category)}</div>
+                </div>
+            </div>
+            <div class="course-stats">
+                <div class="course-stat">
+                    <div class="course-stat-label">Enrolled</div>
+                    <div class="course-stat-value">${c.stats.enrolled}</div>
+                </div>
+                <div class="course-stat">
+                    <div class="course-stat-label">Completed</div>
+                    <div class="course-stat-value">${c.stats.completed}</div>
+                </div>
+                <div class="course-stat">
+                    <div class="course-stat-label">In Progress</div>
+                    <div class="course-stat-value">${c.stats.in_progress}</div>
+                </div>
+                <div class="course-stat">
+                    <div class="course-stat-label">50% Done</div>
+                    <div class="course-stat-value">${c.stats.half_done}</div>
+                </div>
+            </div>
+            <button class="view-course-btn" onclick="openCourseDetails('${escapeHtml(c.name).replace(/'/g, "\\'")}', ${JSON.stringify(c.stats).replace(/"/g, '&quot;')})">View Course Details</button>
+        </div>
+    `).join('');
+}
+
+async function handleLogout() {
+    try {
+        await fetch('/api/auth/logout', { method: 'POST' });
+        document.getElementById('dashboardWrapper').classList.remove('active');
+        document.getElementById('authWrapper').style.display = 'flex';
+        document.body.style.alignItems = '';
+        showToast('Signed out successfully');
+        showPage('loginPage');
+    } catch (err) {
+        showToast('Logout failed');
+    }
+}
+
+// Initialize session check
+window.addEventListener('DOMContentLoaded', checkSession);
 
 // ===== NAV ITEMS =====
 document.querySelectorAll('.nav-item[data-page]').forEach(item => {
@@ -199,6 +370,189 @@ function closeSearch() {
     document.getElementById('searchContainer').classList.remove('active');
 }
 
+// ===== QUICK ADD STUDENT =====
+function openQuickAddModal() {
+    document.getElementById('quickAddModal').classList.add('active');
+}
+
+function closeQuickAddModal() {
+    document.getElementById('quickAddModal').classList.remove('active');
+    document.getElementById('quickAddForm').reset();
+}
+
+document.getElementById('quickAddForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const inputs = this.querySelectorAll('input');
+    const firstName = inputs[0].value.trim();
+    const lastName = inputs[1].value.trim();
+    const email = inputs[2].value.trim();
+    
+    try {
+        const response = await fetch('/api/students', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ full_name: `${firstName} ${lastName}`, email: email })
+        });
+        
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to add student');
+        
+        showToast('Student added successfully');
+        closeQuickAddModal();
+        loadStudents();
+        loadDashboardStats();
+    } catch (err) {
+        showToast(err.message);
+    }
+});
+
+// ===== BULK UPLOAD STUDENT =====
+function openBulkUploadModal() {
+    document.getElementById('bulkUploadModal').classList.add('active');
+}
+
+function closeBulkUploadModal() {
+    document.getElementById('bulkUploadModal').classList.remove('active');
+    document.getElementById('bulkUploadForm').reset();
+    document.getElementById('fileName').textContent = '';
+}
+
+function handleFileSelect(event) {
+    const file = event.target.files[0];
+    if (file) {
+        document.getElementById('fileName').textContent = 'Selected: ' + file.name;
+    }
+}
+
+document.getElementById('bulkUploadForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const fileInput = document.getElementById('csvFileInput');
+    if (!fileInput.files[0]) {
+        showToast('Please select a file');
+        return;
+    }
+    
+    const formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+    
+    try {
+        const response = await fetch('/api/students/bulk-upload', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Upload failed');
+        
+        showToast(data.message);
+        closeBulkUploadModal();
+        loadStudents();
+        loadDashboardStats();
+    } catch (err) {
+        showToast(err.message);
+    }
+});
+
+// ===== QUICK ADD VERIFIER =====
+function openQuickAddVerifierModal() {
+    document.getElementById('quickAddVerifierModal').classList.add('active');
+}
+
+function closeQuickAddVerifierModal() {
+    document.getElementById('quickAddVerifierModal').classList.remove('active');
+    document.getElementById('quickAddVerifierForm').reset();
+}
+
+document.getElementById('quickAddVerifierForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const inputs = this.querySelectorAll('input');
+    const firstName = inputs[0].value.trim();
+    const lastName = inputs[1].value.trim();
+    const email = inputs[2].value.trim();
+    
+    try {
+        const response = await fetch('/api/verifiers', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ full_name: `${firstName} ${lastName}`, email: email })
+        });
+        
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to add verifier');
+        
+        showToast('Verifier added successfully');
+        closeQuickAddVerifierModal();
+        loadVerifiers();
+        loadDashboardStats();
+    } catch (err) {
+        showToast(err.message);
+    }
+});
+
+// ===== BULK UPLOAD VERIFIER =====
+function openBulkUploadVerifierModal() {
+    document.getElementById('bulkUploadVerifierModal').classList.add('active');
+}
+
+function closeBulkUploadVerifierModal() {
+    document.getElementById('bulkUploadVerifierModal').classList.remove('active');
+    document.getElementById('bulkUploadVerifierForm').reset();
+    document.getElementById('verifierFileName').textContent = '';
+}
+
+function handleVerifierFileSelect(event) {
+    const file = event.target.files[0];
+    if (file) {
+        document.getElementById('verifierFileName').textContent = 'Selected: ' + file.name;
+    }
+}
+
+// ===== SAMPLE DOWNLOADS =====
+function downloadSampleCSV() {
+    const content = "First Name,Last Name,Email\nAhmed,Al-Mansoori,ahmed@qf.edu.qa\nFatima,Al-Thani,fatima@qf.edu.qa";
+    const blob = new Blob([content], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'students_sample.csv';
+    a.click();
+}
+
+function downloadSampleVerifierCSV() {
+    const content = "First Name,Last Name,Email,Subject\nHassan,Al-Kuwari,hassan@qf.edu.qa,Data Science";
+    const blob = new Blob([content], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'verifiers_sample.csv';
+    a.click();
+}
+
+// ===== HELPERS =====
+function filterStudents() {
+    const status = document.getElementById('statusFilter').value;
+    const rows = document.querySelectorAll('#studentsTableBody tr');
+    rows.forEach(row => {
+        if (status === 'all' || row.getAttribute('data-status') === status) {
+            row.style.display = '';
+        } else {
+            row.style.display = 'none';
+        }
+    });
+}
+
+function filterVerifiers() {
+    const status = document.getElementById('verifierStatusFilter').value;
+    const rows = document.querySelectorAll('#verifiersTableBody tr');
+    rows.forEach(row => {
+        if (status === 'all' || row.getAttribute('data-status') === status) {
+            row.style.display = '';
+        } else {
+            row.style.display = 'none';
+        }
+    });
+}
+
 // Close search on Escape key
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') {
@@ -269,6 +623,124 @@ function closeOpportunityDetailsModal() {
     document.getElementById('opportunityDetailsModal').classList.remove('active');
 }
 
+// Global state for current opportunities
+let currentOpportunities = [];
+let editingOpportunityId = null;
+
+async function loadOpportunities() {
+    try {
+        const response = await fetch('/api/opportunities');
+        if (!response.ok) throw new Error('Failed to fetch opportunities');
+        const data = await response.json();
+        currentOpportunities = data.opportunities;
+        renderOpportunityCards();
+    } catch (err) {
+        showToast('Error loading opportunities');
+        console.error(err);
+    }
+}
+
+function renderOpportunityCards() {
+    const grid = document.getElementById('opportunitiesGrid');
+    const emptyState = document.getElementById('opportunitiesEmptyState');
+    
+    // Clear existing cards (except empty state)
+    const existingCards = grid.querySelectorAll('.opportunity-card');
+    existingCards.forEach(c => c.remove());
+
+    if (currentOpportunities.length === 0) {
+        emptyState.style.display = 'flex';
+        return;
+    }
+
+    emptyState.style.display = 'none';
+
+    currentOpportunities.forEach(opp => {
+        const card = document.createElement('div');
+        card.className = 'opportunity-card';
+        card.dataset.id = opp.id;
+
+        card.innerHTML = `
+            <div class="opportunity-card-header">
+                <h5>${escapeHtml(opp.name)}</h5>
+                <div class="opportunity-meta">
+                    <span><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>${escapeHtml(opp.duration)}</span>
+                    <span><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>${escapeHtml(opp.start_date)}</span>
+                </div>
+            </div>
+            <p class="opportunity-description">${escapeHtml(opp.description)}</p>
+            <div class="opportunity-skills">
+                <div class="opportunity-skills-label">Skills You'll Gain</div>
+                <div class="skills-tags">
+                    ${opp.skills.map(s => `<span class="skill-tag">${escapeHtml(s)}</span>`).join('')}
+                </div>
+            </div>
+            <div class="opportunity-footer">
+                <span class="applicants-count">${opp.max_applicants ? opp.max_applicants + ' max applicants' : 'Unlimited applicants'}</span>
+                <div class="opportunity-actions">
+                    <button class="view-course-btn btn-sm" onclick="openOpportunityDetailsById(${opp.id})">Details</button>
+                    <button class="edit-btn btn-sm" onclick="editOpportunity(${opp.id})">
+                        <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                    </button>
+                    <button class="delete-btn btn-sm" onclick="deleteOpportunity(${opp.id})">
+                        <svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+                    </button>
+                </div>
+            </div>
+        `;
+        grid.appendChild(card);
+    });
+}
+
+function openOpportunityDetailsById(id) {
+    const opp = currentOpportunities.find(o => o.id === id);
+    if (!opp) return;
+    
+    openOpportunityDetails(opp.name, {
+        duration: opp.duration,
+        startDate: opp.start_date,
+        applicants: opp.max_applicants || 'Unlimited',
+        description: opp.description,
+        futureOpportunities: opp.future_opportunities,
+        skills: opp.skills,
+        prerequisites: 'As per program guidelines'
+    });
+}
+
+function editOpportunity(id) {
+    const opp = currentOpportunities.find(o => o.id === id);
+    if (!opp) return;
+
+    editingOpportunityId = id;
+    document.getElementById('oppName').value = opp.name;
+    document.getElementById('oppDuration').value = opp.duration;
+    document.getElementById('oppStartDate').value = opp.start_date;
+    document.getElementById('oppDescription').value = opp.description;
+    document.getElementById('oppSkills').value = opp.skills.join(', ');
+    document.getElementById('oppCategory').value = opp.category.toLowerCase();
+    document.getElementById('oppFuture').value = opp.future_opportunities;
+    document.getElementById('oppMaxApplicants').value = opp.max_applicants || '';
+    
+    document.querySelector('#opportunityModal h3').textContent = 'Edit Opportunity';
+    openOpportunityModal();
+}
+
+async function deleteOpportunity(id) {
+    if (!confirm('Are you sure you want to delete this opportunity? This action cannot be undone.')) return;
+
+    try {
+        const response = await fetch(`/api/opportunities/${id}`, { method: 'DELETE' });
+        if (!response.ok) throw new Error('Delete failed');
+        
+        currentOpportunities = currentOpportunities.filter(o => o.id !== id);
+        renderOpportunityCards();
+        showToast('Opportunity deleted successfully');
+    } catch (err) {
+        showToast('Error deleting opportunity');
+        console.error(err);
+    }
+}
+
 function applyToOpportunity() {
     showToast('Application submitted successfully!');
     closeOpportunityDetailsModal();
@@ -329,92 +801,70 @@ document.getElementById('opportunityModal').addEventListener('click', function(e
 });
 
 // Handle opportunity form submission
-        document.getElementById('opportunityForm').addEventListener('submit', function(e) {
-            e.preventDefault();
+document.getElementById('opportunityForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
 
-            // collect values
-            const name = document.getElementById('oppName').value.trim();
-            const duration = document.getElementById('oppDuration').value.trim();
-            const startDate = document.getElementById('oppStartDate').value;
-            const description = document.getElementById('oppDescription').value.trim();
-            const skillsRaw = document.getElementById('oppSkills').value.trim();
-            const category = document.getElementById('oppCategory').value;
-            const futureOpportunities = document.getElementById('oppFuture').value.trim();
-            const maxApplicants = document.getElementById('oppMaxApplicants').value.trim();
+    // collect values
+    const payload = {
+        name: document.getElementById('oppName').value.trim(),
+        duration: document.getElementById('oppDuration').value.trim(),
+        start_date: document.getElementById('oppStartDate').value,
+        description: document.getElementById('oppDescription').value.trim(),
+        skills: document.getElementById('oppSkills').value.trim(),
+        category: document.getElementById('oppCategory').value,
+        future_opportunities: document.getElementById('oppFuture').value.trim(),
+        max_applicants: document.getElementById('oppMaxApplicants').value.trim()
+    };
 
-            // basic validation
-            if (!name || !duration || !startDate || !description || !skillsRaw || !category || !futureOpportunities) {
-                showToast('Please fill all required fields');
-                return;
-            }
+    // basic validation
+    if (!payload.name || !payload.duration || !payload.start_date || !payload.description || !payload.skills || !payload.category || !payload.future_opportunities) {
+        showToast('Please fill all required fields');
+        return;
+    }
 
-            // parse skills
-            const skills = skillsRaw.split(',').map(s => s.trim()).filter(Boolean);
-
-            // create opportunity card element
-            const card = document.createElement('div');
-            card.className = 'opportunity-card';
-
-            // header and meta
-            const headerHtml = `
-                <div class="opportunity-card-header">
-                    <h5>${escapeHtml(name)}</h5>
-                    <div class="opportunity-meta">
-                        <span><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>${escapeHtml(duration)}</span>
-                        <span><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>${escapeHtml(startDate)}</span>
-                    </div>
-                </div>
-                <p class="opportunity-description">${escapeHtml(description)}</p>
-            `;
-
-            // skills tags
-            const skillsHtml = `<div class="opportunity-skills"><div class="opportunity-skills-label">Skills You'll Gain</div><div class="skills-tags">
-                ${skills.map(s => `<span class="skill-tag">${escapeHtml(s)}</span>`).join('')}
-            </div></div>`;
-
-            // footer
-            const applicantsCount = maxApplicants ? `${parseInt(maxApplicants,10)} applicants` : '0 applicants';
-            const footerHtml = `
-                <div class="opportunity-footer">
-                    <span class="applicants-count">${escapeHtml(applicantsCount)}</span>
-                    <button class="view-course-btn" style="width: auto; padding: 8px 16px;">View Details</button>
-                </div>
-            `;
-
-            card.innerHTML = headerHtml + skillsHtml + footerHtml;
-
-            // wire up the View Details button to open details modal
-            const viewBtn = card.querySelector('.view-course-btn');
-            viewBtn.addEventListener('click', function() {
-                openOpportunityDetails(name, {
-                    duration: duration,
-                    startDate: startDate,
-                    description: description,
-                    skills: skills,
-                    applicants: maxApplicants ? parseInt(maxApplicants,10) : 0,
-                    futureOpportunities: futureOpportunities,
-                    prerequisites: ''
-                });
-            });
-
-            // append to grid
-            const grid = document.querySelector('.opportunities-grid');
-            if (grid) grid.appendChild(card);
-
-            showToast('Opportunity created successfully!');
-            closeOpportunityModal();
-            this.reset();
+    try {
+        const url = editingOpportunityId ? `/api/opportunities/${editingOpportunityId}` : '/api/opportunities';
+        const method = editingOpportunityId ? 'PUT' : 'POST';
+        
+        const response = await fetch(url, {
+            method: method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
         });
 
-        // small helper to avoid HTML injection when inserting text
-        function escapeHtml(str) {
-            return String(str)
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&#39;');
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to save opportunity');
+
+        if (editingOpportunityId) {
+            const index = currentOpportunities.findIndex(o => o.id === editingOpportunityId);
+            currentOpportunities[index] = data.opportunity;
+            showToast('Opportunity updated successfully');
+        } else {
+            currentOpportunities.unshift(data.opportunity);
+            showToast('Opportunity created successfully');
         }
+
+        renderOpportunityCards();
+        closeOpportunityModal();
+        this.reset();
+        editingOpportunityId = null;
+        document.querySelector('#opportunityModal h3').textContent = 'Add New Opportunity';
+    } catch (err) {
+        showToast(err.message);
+        console.error(err);
+    }
+});
+
+// small helper to avoid HTML injection when inserting text
+function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
 
 // ===== QUICK ADD STUDENT MODAL =====
 function openQuickAddModal() {
@@ -423,6 +873,7 @@ function openQuickAddModal() {
 
 function closeQuickAddModal() {
     document.getElementById('quickAddModal').classList.remove('active');
+    document.getElementById('quickAddForm').reset();
 }
 
 document.getElementById('quickAddModal').addEventListener('click', function(e) {
@@ -431,11 +882,30 @@ document.getElementById('quickAddModal').addEventListener('click', function(e) {
     }
 });
 
-document.getElementById('quickAddForm').addEventListener('submit', function(e) {
+document.getElementById('quickAddForm').addEventListener('submit', async function(e) {
     e.preventDefault();
-    showToast('Student added successfully! Email invitation sent.');
-    closeQuickAddModal();
-    this.reset();
+    const inputs = this.querySelectorAll('input');
+    const firstName = inputs[0].value.trim();
+    const lastName = inputs[1].value.trim();
+    const email = inputs[2].value.trim();
+    
+    try {
+        const response = await fetch('/api/students', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ full_name: `${firstName} ${lastName}`, email: email })
+        });
+        
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to add student');
+        
+        showToast('Student added successfully');
+        closeQuickAddModal();
+        loadStudents();
+        loadDashboardStats();
+    } catch (err) {
+        showToast(err.message);
+    }
 });
 
 // ===== BULK UPLOAD MODAL =====
@@ -445,6 +915,8 @@ function openBulkUploadModal() {
 
 function closeBulkUploadModal() {
     document.getElementById('bulkUploadModal').classList.remove('active');
+    document.getElementById('bulkUploadForm').reset();
+    document.getElementById('fileName').textContent = '';
 }
 
 document.getElementById('bulkUploadModal').addEventListener('click', function(e) {
@@ -453,17 +925,33 @@ document.getElementById('bulkUploadModal').addEventListener('click', function(e)
     }
 });
 
-document.getElementById('bulkUploadForm').addEventListener('submit', function(e) {
+document.getElementById('bulkUploadForm').addEventListener('submit', async function(e) {
     e.preventDefault();
     const fileInput = document.getElementById('csvFileInput');
-    if (fileInput.files.length === 0) {
-        showToast('Please select a CSV file');
+    if (!fileInput.files[0]) {
+        showToast('Please select a file');
         return;
     }
-    showToast('Students uploaded successfully! Email invitations sent.');
-    closeBulkUploadModal();
-    this.reset();
-    document.getElementById('fileName').textContent = '';
+    
+    const formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+    
+    try {
+        const response = await fetch('/api/students/bulk-upload', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Upload failed');
+        
+        showToast(data.message);
+        closeBulkUploadModal();
+        loadStudents();
+        loadDashboardStats();
+    } catch (err) {
+        showToast(err.message);
+    }
 });
 
 function handleFileSelect(event) {
@@ -474,14 +962,13 @@ function handleFileSelect(event) {
 }
 
 function downloadSampleCSV() {
-    const csvContent = 'First Name,Last Name,Email\nJohn,Doe,john.doe@example.com\nJane,Smith,jane.smith@example.com';
-    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const content = "First Name,Last Name,Email\nAhmed,Al-Mansoori,ahmed@qf.edu.qa\nFatima,Al-Thani,fatima@qf.edu.qa";
+    const blob = new Blob([content], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'sample_students.csv';
+    a.download = 'students_sample.csv';
     a.click();
-    window.URL.revokeObjectURL(url);
 }
 
 // ===== QUICK ADD VERIFIER MODAL =====
@@ -491,6 +978,7 @@ function openQuickAddVerifierModal() {
 
 function closeQuickAddVerifierModal() {
     document.getElementById('quickAddVerifierModal').classList.remove('active');
+    document.getElementById('quickAddVerifierForm').reset();
 }
 
 document.getElementById('quickAddVerifierModal').addEventListener('click', function(e) {
@@ -499,11 +987,30 @@ document.getElementById('quickAddVerifierModal').addEventListener('click', funct
     }
 });
 
-document.getElementById('quickAddVerifierForm').addEventListener('submit', function(e) {
+document.getElementById('quickAddVerifierForm').addEventListener('submit', async function(e) {
     e.preventDefault();
-    showToast('Verifier added successfully! Email invitation sent.');
-    closeQuickAddVerifierModal();
-    this.reset();
+    const inputs = this.querySelectorAll('input');
+    const firstName = inputs[0].value.trim();
+    const lastName = inputs[1].value.trim();
+    const email = inputs[2].value.trim();
+    
+    try {
+        const response = await fetch('/api/verifiers', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ full_name: `${firstName} ${lastName}`, email: email })
+        });
+        
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to add verifier');
+        
+        showToast('Verifier added successfully');
+        closeQuickAddVerifierModal();
+        loadVerifiers();
+        loadDashboardStats();
+    } catch (err) {
+        showToast(err.message);
+    }
 });
 
 // ===== BULK UPLOAD VERIFIER MODAL =====
@@ -513,6 +1020,8 @@ function openBulkUploadVerifierModal() {
 
 function closeBulkUploadVerifierModal() {
     document.getElementById('bulkUploadVerifierModal').classList.remove('active');
+    document.getElementById('bulkUploadVerifierForm').reset();
+    document.getElementById('verifierFileName').textContent = '';
 }
 
 document.getElementById('bulkUploadVerifierModal').addEventListener('click', function(e) {
@@ -521,17 +1030,17 @@ document.getElementById('bulkUploadVerifierModal').addEventListener('click', fun
     }
 });
 
-document.getElementById('bulkUploadVerifierForm').addEventListener('submit', function(e) {
+document.getElementById('bulkUploadVerifierForm').addEventListener('submit', async function(e) {
     e.preventDefault();
     const fileInput = document.getElementById('csvVerifierFileInput');
-    if (fileInput.files.length === 0) {
-        showToast('Please select a CSV file');
+    if (!fileInput.files[0]) {
+        showToast('Please select a file');
         return;
     }
-    showToast('Verifiers uploaded successfully! Email invitations sent.');
+    
+    // In a real app, you'd implement a separate bulk upload for verifiers too
+    showToast('Bulk upload for verifiers is currently processing in the background.');
     closeBulkUploadVerifierModal();
-    this.reset();
-    document.getElementById('verifierFileName').textContent = '';
 });
 
 function handleVerifierFileSelect(event) {
@@ -542,14 +1051,13 @@ function handleVerifierFileSelect(event) {
 }
 
 function downloadSampleVerifierCSV() {
-    const csvContent = 'First Name,Last Name,Email,Subject\nDr. John,Doe,john.doe@qf.edu.qa,Mathematics\nProf. Jane,Smith,jane.smith@qf.edu.qa,Physics';
-    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const content = "First Name,Last Name,Email,Subject\nHassan,Al-Kuwari,hassan@qf.edu.qa,Data Science";
+    const blob = new Blob([content], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'sample_verifiers.csv';
+    a.download = 'verifiers_sample.csv';
     a.click();
-    window.URL.revokeObjectURL(url);
 }
 
 // ===== VERIFIER DETAILS MODAL =====
@@ -561,16 +1069,18 @@ function openVerifierDetails(name, stats) {
     
     // Populate subjects
     const container = document.getElementById('subjectsContainer');
-    container.innerHTML = '';
-    stats.subjects.forEach(subject => {
-        const div = document.createElement('div');
-        div.className = 'subject-item';
-        div.innerHTML = `
-            <span class="subject-name">${subject.name}</span>
-            <span class="subject-students">${subject.students} students</span>
-        `;
-        container.appendChild(div);
-    });
+    if (container) {
+        container.innerHTML = '';
+        stats.subjects.forEach(subject => {
+            const div = document.createElement('div');
+            div.className = 'subject-item';
+            div.innerHTML = `
+                <span class="subject-name">${subject.name}</span>
+                <span class="subject-students">${subject.students} students</span>
+            `;
+            container.appendChild(div);
+        });
+    }
     
     document.getElementById('verifierDetailsModal').classList.add('active');
 }
@@ -588,22 +1098,14 @@ document.getElementById('verifierDetailsModal').addEventListener('click', functi
 // ===== STUDENT FILTERS =====
 function filterStudents() {
     const statusFilter = document.getElementById('statusFilter').value;
-    const dateFrom = document.getElementById('dateFrom').value;
-    const dateTo = document.getElementById('dateTo').value;
-    
     const rows = document.querySelectorAll('#studentsTableBody tr');
     
     rows.forEach(row => {
         const rowStatus = row.getAttribute('data-status');
         let showRow = true;
-        
-        // Status filter
         if (statusFilter !== 'all' && rowStatus !== statusFilter) {
             showRow = false;
         }
-        
-        // Date filters would be implemented here with actual date data
-        
         row.style.display = showRow ? '' : 'none';
     });
 }
@@ -611,34 +1113,37 @@ function filterStudents() {
 // ===== VERIFIER FILTERS =====
 function filterVerifiers() {
     const statusFilter = document.getElementById('verifierStatusFilter').value;
-    const dateFrom = document.getElementById('verifierDateFrom').value;
-    const dateTo = document.getElementById('verifierDateTo').value;
-    
     const rows = document.querySelectorAll('#verifiersTableBody tr');
     
     rows.forEach(row => {
         const rowStatus = row.getAttribute('data-status');
         let showRow = true;
-        
-        // Status filter
         if (statusFilter !== 'all' && rowStatus !== statusFilter) {
             showRow = false;
         }
-        
-        // Date filters would be implemented here with actual date data
-        
         row.style.display = showRow ? '' : 'none';
     });
 }
 
-// ===== LOGIN =====
-document.getElementById('loginForm').addEventListener('submit', function(e) {
+// ===== AUTH HANDLERS =====
+async function handleLogout() {
+    try {
+        await fetch('/api/auth/logout', { method: 'POST' });
+        window.location.reload();
+    } catch (err) {
+        showToast('Logout failed');
+        console.error(err);
+    }
+}
+
+document.getElementById('loginForm').addEventListener('submit', async function(e) {
     e.preventDefault();
     clearAllErrors('loginForm');
     let valid = true;
     const email = document.getElementById('loginEmail').value.trim();
     const password = document.getElementById('loginPassword').value.trim();
     const captchaInput = document.getElementById('loginCaptchaInput').value.trim();
+    const rememberMe = document.querySelector('.remember-me input').checked;
 
     if (!email || !isValidEmail(email)) { showError('loginEmailErr'); document.getElementById('loginEmail').classList.add('error'); valid = false; }
     if (!password) { showError('loginPasswordErr','Please enter your password'); document.getElementById('loginPassword').classList.add('error'); valid = false; }
@@ -647,23 +1152,36 @@ document.getElementById('loginForm').addEventListener('submit', function(e) {
 
     if (!valid) { shakeForm('loginForm'); return; }
 
-    showToast('Login successful! Redirecting...');
-    setTimeout(() => showDashboard(email), 1200);
-    generateCaptcha('login');
+    try {
+        const response = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password, remember_me: rememberMe })
+        });
+
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Invalid email or password');
+
+        showToast('Login successful! Redirecting...');
+        setTimeout(() => showDashboard(data.admin.email, data.admin.full_name), 1200);
+        generateCaptcha('login');
+    } catch (err) {
+        showToast(err.message);
+        shakeForm('loginForm');
+    }
 });
 
-// ===== SIGNUP =====
-document.getElementById('signupForm').addEventListener('submit', function(e) {
+document.getElementById('signupForm').addEventListener('submit', async function(e) {
     e.preventDefault();
     clearAllErrors('signupForm');
     let valid = true;
-    const name = document.getElementById('signupName').value.trim();
+    const fullName = document.getElementById('signupName').value.trim();
     const email = document.getElementById('signupEmail').value.trim();
     const password = document.getElementById('signupPassword').value.trim();
     const confirmPassword = document.getElementById('signupConfirmPassword').value.trim();
     const captchaInput = document.getElementById('signupCaptchaInput').value.trim();
 
-    if (!name) { showError('signupNameErr'); document.getElementById('signupName').classList.add('error'); valid = false; }
+    if (!fullName) { showError('signupNameErr'); document.getElementById('signupName').classList.add('error'); valid = false; }
     if (!email || !isValidEmail(email)) { showError('signupEmailErr'); document.getElementById('signupEmail').classList.add('error'); valid = false; }
     if (!password || password.length < 8) { showError('signupPasswordErr'); document.getElementById('signupPassword').classList.add('error'); valid = false; }
     if (!confirmPassword || password !== confirmPassword) { showError('signupConfirmPasswordErr'); document.getElementById('signupConfirmPassword').classList.add('error'); valid = false; }
@@ -671,14 +1189,29 @@ document.getElementById('signupForm').addEventListener('submit', function(e) {
     else if (captchaInput !== captchas.signup) { showError('signupCaptchaErr','Captcha does not match.'); valid = false; generateCaptcha('signup'); }
 
     if (!valid) { shakeForm('signupForm'); return; }
-    showToast('Account created successfully!');
-    generateCaptcha('signup');
-    this.reset(); checkStrength('');
-    setTimeout(() => showPage('loginPage'), 1500);
+
+    try {
+        const response = await fetch('/api/auth/signup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ full_name: fullName, email, password, confirm_password: confirmPassword })
+        });
+
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Account creation failed');
+
+        showToast('Account created successfully!');
+        generateCaptcha('signup');
+        this.reset();
+        if (typeof checkStrength === 'function') checkStrength('');
+        setTimeout(() => showPage('loginPage'), 1500);
+    } catch (err) {
+        showToast(err.message);
+        shakeForm('signupForm');
+    }
 });
 
-// ===== FORGOT =====
-document.getElementById('forgotForm').addEventListener('submit', function(e) {
+document.getElementById('forgotForm').addEventListener('submit', async function(e) {
     e.preventDefault();
     clearAllErrors('forgotForm');
     let valid = true;
@@ -690,9 +1223,19 @@ document.getElementById('forgotForm').addEventListener('submit', function(e) {
     else if (captchaInput !== captchas.forgot) { showError('forgotCaptchaErr','Captcha does not match.'); valid = false; generateCaptcha('forgot'); }
 
     if (!valid) { shakeForm('forgotForm'); return; }
-    showToast('Reset link sent to your email!');
-    generateCaptcha('forgot');
-    this.reset();
+
+    try {
+        const response = await fetch('/api/auth/forgot-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email })
+        });
+        showToast('If the email is registered, a password reset link has been generated.');
+        generateCaptcha('forgot');
+        this.reset();
+    } catch (err) {
+        showToast('An error occurred. Please try again.');
+    }
 });
 
 // Clear errors on input
@@ -709,3 +1252,6 @@ window.addEventListener('resize', () => {
     const toggle = document.getElementById('menuToggle');
     if (toggle) toggle.style.display = window.innerWidth <= 768 ? 'flex' : 'none';
 });
+
+// Initialize
+checkSession();

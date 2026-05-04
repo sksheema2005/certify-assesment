@@ -1571,3 +1571,96 @@ body::after {
 .analytics-card:nth-child(1) { animation-delay: 0.25s; }
 .analytics-card:nth-child(2) { animation-delay: 0.3s; }
 .notifications-card { animation-delay: 0.35s; }
+
+/* New Opportunity Actions */
+.opportunity-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+.btn-sm {
+    padding: 6px 12px;
+    font-size: 12px;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+.edit-btn, .delete-btn {
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: var(--transition);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.edit-btn {
+    background: var(--qf-mint-pale);
+    color: var(--qf-green);
+}
+.edit-btn:hover {
+    background: var(--qf-green);
+    color: #fff;
+}
+.delete-btn {
+    background: rgba(217, 79, 79, 0.08);
+    color: var(--qf-red);
+}
+.delete-btn:hover {
+    background: var(--qf-red);
+    color: #fff;
+}
+.edit-btn svg, .delete-btn svg {
+    width: 16px;
+    height: 16px;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 2;
+}
+
+/* Empty State */
+.empty-state {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 20px;
+    text-align: center;
+    background: rgba(255, 255, 255, 0.5);
+    border: 2px dashed var(--qf-border);
+    border-radius: 20px;
+}
+.empty-state-icon {
+    width: 64px;
+    height: 64px;
+    background: var(--qf-mint-pale);
+    color: var(--qf-green);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 20px;
+}
+.empty-state-icon svg {
+    width: 32px;
+    height: 32px;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 2;
+}
+.empty-state h3 {
+    font-size: 18px;
+    color: var(--qf-text);
+    margin-bottom: 8px;
+}
+.empty-state p {
+    font-size: 14px;
+    color: var(--qf-text-light);
+    max-width: 300px;
+}

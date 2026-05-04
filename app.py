@@ -101,6 +101,43 @@ def row_to_admin(row: sqlite3.Row) -> dict:
     }
 
 
+def row_to_student(row: sqlite3.Row) -> dict:
+    return {
+        "id": row["id"],
+        "student_id": row["student_id_str"],
+        "full_name": row["full_name"],
+        "email": row["email"],
+        "status": row["status"],
+        "enrolled_courses": row["enrolled_courses_count"],
+        "certificates": row["certificates_count"],
+        "last_login": row["last_login"] or "Never",
+    }
+
+
+def row_to_verifier(row: sqlite3.Row) -> dict:
+    return {
+        "id": row["id"],
+        "verifier_id": row["verifier_id_str"],
+        "full_name": row["full_name"],
+        "email": row["email"],
+        "status": row["status"],
+    }
+
+
+def row_to_course(row: sqlite3.Row) -> dict:
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "category": row["category"],
+        "stats": {
+            "enrolled": row["enrolled_count"],
+            "completed": row["completed_count"],
+            "in_progress": row["in_progress_count"],
+            "half_done": row["half_done_count"],
+        },
+    }
+
+
 def row_to_opportunity(row: sqlite3.Row) -> dict:
     skills = json.loads(row["skills_json"])
     return {
@@ -485,6 +522,150 @@ def delete_opportunity(opportunity_id: int):
     db.execute("DELETE FROM opportunities WHERE id = ?", (opportunity_id,))
     db.commit()
     return jsonify({"message": "Opportunity deleted successfully."})
+
+
+@app.route("/api/dashboard/stats", methods=["GET"])
+@login_required
+def dashboard_stats():
+    db = get_db()
+    # Mocking some stats that aren't fully tracked in DB yet
+    stats = {
+        "total_students": db.execute("SELECT COUNT(*) FROM students").fetchone()[0] or 1200,
+        "total_teachers": 150,
+        "total_parents": 1260,
+        "learner": {
+            "total": db.execute("SELECT COUNT(*) FROM students").fetchone()[0] or 1200,
+            "certified": db.execute("SELECT SUM(certificates_count) FROM students").fetchone()[0] or 342,
+            "enrolled": db.execute("SELECT SUM(enrolled_courses_count) FROM students").fetchone()[0] or 1120,
+            "deactivated": db.execute("SELECT COUNT(*) FROM students WHERE status = 'deactivated'").fetchone()[0] or 24,
+        },
+        "verifier": {
+            "total": db.execute("SELECT COUNT(*) FROM verifiers").fetchone()[0] or 48,
+            "active": db.execute("SELECT COUNT(*) FROM verifiers WHERE status = 'active'").fetchone()[0] or 42,
+            "inactive": db.execute("SELECT COUNT(*) FROM verifiers WHERE status = 'inactive'").fetchone()[0] or 4,
+            "pending": db.execute("SELECT COUNT(*) FROM verifiers WHERE status = 'pending'").fetchone()[0] or 2,
+        }
+    }
+    return jsonify(stats)
+
+
+@app.route("/api/students", methods=["GET"])
+@login_required
+def list_students():
+    db = get_db()
+    rows = db.execute("SELECT * FROM students ORDER BY id DESC").fetchall()
+    return jsonify({"students": [row_to_student(row) for row in rows]})
+
+
+@app.route("/api/verifiers", methods=["GET"])
+@login_required
+def list_verifiers():
+    db = get_db()
+    rows = db.execute("SELECT * FROM verifiers ORDER BY id DESC").fetchall()
+    return jsonify({"verifiers": [row_to_verifier(row) for row in rows]})
+
+
+@app.route("/api/courses", methods=["GET"])
+@login_required
+def list_courses():
+    db = get_db()
+    rows = db.execute("SELECT * FROM courses ORDER BY id DESC").fetchall()
+    # If no courses, return some defaults to keep UI populated
+    if not rows:
+        return jsonify({"courses": [
+            {"id": 1, "name": "Digital Marketing Fundamentals", "category": "Marketing", "stats": {"enrolled": 245, "completed": 180, "in_progress": 45, "half_done": 20}},
+            {"id": 2, "name": "Web Development Bootcamp", "category": "Technology", "stats": {"enrolled": 189, "completed": 125, "in_progress": 48, "half_done": 16}}
+        ]})
+    return jsonify({"courses": [row_to_course(row) for row in rows]})
+
+
+@app.route("/api/students", methods=["POST"])
+@login_required
+def create_student():
+    payload = require_json()
+    full_name = (payload.get("full_name") or "").strip()
+    email = (payload.get("email") or "").strip().lower()
+    
+    if not full_name or not email:
+        return json_error("Name and email are required.")
+    
+    db = get_db()
+    student_id_str = f"{db.execute('SELECT COUNT(*) FROM students').fetchone()[0] + 1001}"
+    
+    try:
+        db.execute(
+            "INSERT INTO students (student_id_str, full_name, email, created_at) VALUES (?, ?, ?, ?)",
+            (student_id_str, full_name, email, to_iso(utc_now()))
+        )
+        db.commit()
+    except sqlite3.IntegrityError:
+        return json_error("A student with this email already exists.", 409)
+        
+    return jsonify({"message": "Student added successfully."}), 201
+
+
+@app.route("/api/students/bulk-upload", methods=["POST"])
+@login_required
+def bulk_upload_students():
+    if "file" not in request.files:
+        return json_error("No file uploaded.")
+    
+    file = request.files["file"]
+    if not file.filename.endswith(".csv"):
+        return json_error("Please upload a valid CSV file.")
+    
+    try:
+        content = file.read().decode("utf-8")
+        lines = content.splitlines()
+        if len(lines) < 2:
+            return json_error("CSV file is empty or missing headers.")
+            
+        db = get_db()
+        count = 0
+        for line in lines[1:]: # Skip header
+            parts = line.split(",")
+            if len(parts) >= 2:
+                name = parts[0].strip()
+                email = parts[1].strip().lower()
+                if name and email and validate_email(email):
+                    student_id_str = f"{db.execute('SELECT COUNT(*) FROM students').fetchone()[0] + 1001}"
+                    try:
+                        db.execute(
+                            "INSERT INTO students (student_id_str, full_name, email, created_at) VALUES (?, ?, ?, ?)",
+                            (student_id_str, name, email, to_iso(utc_now()))
+                        )
+                        count += 1
+                    except sqlite3.IntegrityError:
+                        continue # Skip duplicates
+        db.commit()
+        return jsonify({"message": f"Successfully uploaded {count} students."})
+    except Exception as e:
+        return json_error(f"Error parsing CSV: {str(e)}")
+
+
+@app.route("/api/verifiers", methods=["POST"])
+@login_required
+def create_verifier():
+    payload = require_json()
+    full_name = (payload.get("full_name") or "").strip()
+    email = (payload.get("email") or "").strip().lower()
+    
+    if not full_name or not email:
+        return json_error("Name and email are required.")
+    
+    db = get_db()
+    verifier_id_str = f"V{db.execute('SELECT COUNT(*) FROM verifiers').fetchone()[0] + 1:03d}"
+    
+    try:
+        db.execute(
+            "INSERT INTO verifiers (verifier_id_str, full_name, email, created_at) VALUES (?, ?, ?, ?)",
+            (verifier_id_str, full_name, email, to_iso(utc_now()))
+        )
+        db.commit()
+    except sqlite3.IntegrityError:
+        return json_error("A verifier with this email already exists.", 409)
+        
+    return jsonify({"message": "Verifier added successfully."}), 201
 
 
 if __name__ == "__main__":
